@@ -1,0 +1,178 @@
+---
+title: "Assignment3-Pathak-LaLiga"
+author: "Rohan Pathak"
+date: "2023-04-12"
+output: html_document
+---
+
+## **Problem Statement**
+
+The aim is to develop a predictive model using the H2O machine learning framework that can accurately predict the number of goals scored by a player based on their actions during a game, using a Laliga dataset. The dataset contains information on various player actions such as shots taken, successful passes, successful dribbles, etc. and the corresponding number of goals scored by each player in each game. 
+The goal of this project is to create a model that can take these action features as input and predict the number of goals a player is likely to score in a given game. 
+This model could be used by coaches, scouts, and analysts to identify players who are likely to be more effective goal scorers, or to optimize team strategy by identifying areas where players could improve their performance. 
+The challenge is to identify the most important action features that are most strongly correlated with goal scoring, and to develop a model that can accurately predict goals scored based on these features. Thus, we further use Explainable AI (XAI) from the DALEXtra library package to identify them.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include= TRUE, echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## **Kaggle Dataset Screenshot and Link**
+https://www.kaggle.com/datasets/sdelquin/laliga-data
+![](Assignment3-Pathak-LaLiga.png "Screenshot")
+
+## **Importing Libraries**
+
+```{r, message=FALSE, warning=FALSE}
+library(h2o)
+library(dplyr)
+library(DALEXtra)
+library(ggplot2)
+library(kableExtra)
+```
+
+## **Data Loading and Description**
+
+We load the preprocessed data to our RMarkdown file.
+
+```{r, message=FALSE, warning=FALSE}
+laliga <- read.csv("Assignment3-Pathak-LaLiga.csv")
+```
+
+
+Below we have a summary of the predictors used in the model, each holds an integer value. Our aim is to predict the number of goals.
+```{r, message=FALSE, warning=FALSE}
+    #forward_passes: Number of passes made towards the opposing team's goal direction.
+    #foul_won_penalty: Number of fouls committed against the player resulting in a penalty.
+    #goal_assists: Number of passes that directly led to a goal being scored.
+    #goals: Number of goals scored by the player.
+    #ground_duels_won: Number of times the player successfully won a ground duel (tackle) against an opponent.
+    #hit_woodwork: Number of times the player hit the goalpost or crossbar with a shot.
+    #open_play_passes: Number of passes made during open play (not from a set piece).
+    #recoveries: Number of times the player regained possession of the ball for their team.
+    #successful_dribbles: Number of times the player successfully dribbled past an opponent.
+    #total_passes: Total number of passes attempted by the player.
+    #total_shots: Total number of shots taken by the player.
+    #total_touches_in_opposition_box: Total number of times the player touched the ball inside the opposing team's penalty box.
+```
+
+Below is a glimpse of the first 10 rows of the dataset
+```{r, message=FALSE, warning=FALSE}
+kbl(laliga[1:10,]) %>%
+  kable_paper(bootstrap_options = "striped", full_width = F)
+```
+
+## **Loading the h2o Model**
+
+```{r, message=FALSE, warning=FALSE, results='hide'}
+h2o.init()
+model_path = ("Assignment3-Pathak-LaLiga.h2o")
+model = h2o.loadModel(model_path)
+```
+
+
+Converting the datframe to h2o
+```{r, message=FALSE, warning=FALSE,results= 'hide'}
+laliga_h2o <- as.h2o(laliga)
+```
+
+```{r}
+h2o.describe(laliga_h2o)
+```
+
+
+We split the h2o dataframe for use during model evaluation and explanation
+```{r, message=FALSE, warning=FALSE}
+splits <- h2o.splitFrame(data = laliga_h2o, ratios = c(0.6, 0.2), seed = 1234, destination_frames = c("train", "valid", "test"))
+train <- splits[[1]]
+valid <- splits[[2]]
+test <- splits[[3]]
+```
+
+
+## **Model's Performance Evaluation**
+
+We check how the model is performing by using performance function on the test frame, and then calculate the accuracy using R square.
+```{r, message=FALSE, warning=FALSE}
+
+performance <- h2o.performance(model, newdata = test)
+accuracy <- h2o.r2(performance)
+```
+
+Displaying the performance
+```{r}
+performance
+```
+
+
+Displaying the accuracy
+```{r}
+accuracy
+```
+The model with accuracy of 76% is performing well.
+
+## **Explainable AI models**
+
+We first create a h2o explainer.
+```{r, message=FALSE, warning=FALSE, results='hide'}
+h2o_exp <- explain_h2o(
+  model,
+  data = train,
+  y = train$goals,
+  label = "H2O",
+  type = "regression"
+)
+```
+
+We get a single row to act as a data entry for a new player, we will use this in our XAI models.
+```{r, message=FALSE, warning=FALSE}
+test_df <- as.data.frame(test)
+play= test_df[5, ]
+```
+
+## **Break-down Plot**
+
+First we use the explainer to get a Break-Down Plot.
+```{r, message=FALSE, warning=FALSE, results='hide'}
+h2o_exp_bd <- predict_parts(
+  explainer = h2o_exp, new_observation = play,
+  type = "break_down")
+```
+
+```{r,message=FALSE, warning=FALSE}
+plot(h2o_exp_bd) + ggtitle("Break-down plot for the new player")
+```
+
+From the plot we can see the most important predictors of the number of goals according to our model are "total passes", with "total shots" and "touches in the box" being the second and third most significant factors. It is in line with real life observations as an attack minded player would take more forward actions leading to more goal scoring opportunities. Also we see that a player's tendency to hit the woodwork often will have a negative correlation to their total goals scored.
+
+
+## **Mean-Variable Importance**
+
+Next we use the explainer to check the mean-variable performance.
+```{r, message=FALSE, warning=FALSE, results= 'hide'}
+h2o_exp_vip <- model_parts(
+  explainer = h2o_exp,
+  B = 50, type = "difference")
+```
+
+```{r, message=FALSE, warning=FALSE}
+plot(h2o_exp_vip) +
+  ggtitle("Mean variable-importance over 50 permutations")
+```
+
+
+Here we find the "number of total passes" is the most significant metric, followed by "open play passes" and "total shots". These three have the most effect on our model's final predicted value of the number of goals a player will score.
+
+## **Shutting down h2o**
+Finally we shutdown the h2o cluster
+```{r, message=FALSE, warning=FALSE}
+h2o.shutdown(prompt = F)
+```
+
+
+
+## **Conclusion**
+
+We see of all the predictors, the number of attack oriented actions taken are the most significant and have the most positive impact impact on our model's predicted number of goals. The model is thus close to what conventional wisdom says.
+
+
+
